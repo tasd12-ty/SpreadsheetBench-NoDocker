@@ -1,8 +1,24 @@
+# Core dependencies
 tqdm==4.66.3
 pandas==2.2.0
 transformers==4.38.0
 openpyxl==3.1.3
 openai==1.30.4
-docker==7.1.0
 numpy==1.22.2
-vllm
+
+# Jupyter dependencies for local execution (no Docker)
+jupyter_client>=8.0.0
+jupyter_kernel_gateway>=3.0.0
+ipykernel>=6.0.0
+
+# Optional: Docker support (only needed if USE_DOCKER=1)
+# docker==7.1.0
+
+# Optional: vLLM for local model deployment
+# vllm
+
+# Tornado for API server
+tornado>=6.0.0
+
+# HTTP requests
+requests>=2.25.0

@@ -8,6 +8,9 @@ from llm_api import get_llm_response
 from code_exec import get_exec_client, extract_code, exec_code
 from prompt_format import PROMPT_FORMAT_SINGLE, PROMPT_DF_RCT_FORMAT , PROMPT_NO_DF_RCT_FORMAT
 
+# Check if local execution mode is enabled
+USE_LOCAL_KERNEL = os.environ.get("USE_LOCAL_KERNEL", "0").lower() == "1"
+
 
 def gen_file_content(input_file):
     excel_file = pd.ExcelFile(input_file)
@@ -32,7 +35,7 @@ def gen_solution(opt):
     dataset_path = os.path.abspath(f'../data/{opt.dataset}')
     with open(f'{dataset_path}/dataset.json', 'r') as fp:
         dataset = json.load(fp)
-    
+
     # check if output file folder exists
     output_file_path = f'{dataset_path}/outputs'
     if not os.path.exists(output_file_path):
@@ -40,19 +43,25 @@ def gen_solution(opt):
         os.chmod(output_file_path, 0o777)
 
     # check if output file folder of the model exists
-    output_file_path = f'{output_file_path}/single_{opt.model}'
-    if not os.path.exists(output_file_path):
-        os.makedirs(output_file_path)
-        os.chmod(output_file_path, 0o777)
+    model_output_path = f'{output_file_path}/multi_{opt.setting}_{opt.model}'
+    if not os.path.exists(model_output_path):
+        os.makedirs(model_output_path)
+        os.chmod(model_output_path, 0o777)
 
     # create code execution client
     client = get_exec_client(opt.code_exec_url, opt.conv_id)
-        
+
     for data in tqdm(dataset):
         file_name = f"1_{data['spreadsheet_path'].lstrip('spreadsheet/')}_input.xlsx"
-        input_path = f"/mnt/data/{data['spreadsheet_path']}/{file_name}"
-        output_path = f"/mnt/data/outputs/multi_{opt.setting}_{opt.model}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
         find_input_path = f"{dataset_path}/{data['spreadsheet_path']}/{file_name}"
+
+        # Use local path or Docker path based on mode
+        if USE_LOCAL_KERNEL:
+            input_path = find_input_path
+            output_path = f"{model_output_path}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
+        else:
+            input_path = f"/mnt/data/{data['spreadsheet_path']}/{file_name}"
+            output_path = f"/mnt/data/outputs/multi_{opt.setting}_{opt.model}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
 
         # three setting: row_exec, react_exec, row_react_exec
         if opt.setting == 'row_exec':

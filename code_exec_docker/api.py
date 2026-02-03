@@ -8,16 +8,38 @@ import tornado.ioloop
 import tornado.web
 import tornado.httpserver
 from collections import namedtuple
-from jupyter import JupyterKernel, JupyterGatewayDocker, JupyterGatewayKubernetes
+from jupyter import JupyterKernel, JupyterGatewayLocal
+
+# Conditionally import Docker and Kubernetes backends
+USE_DOCKER = os.environ.get("USE_DOCKER", "0").lower() == "1"
+USE_KUBERNETES = os.environ.get("USE_KUBERNETES", "0").lower() == "1"
+
+if USE_DOCKER:
+    try:
+        from jupyter import JupyterGatewayDocker
+    except ImportError:
+        USE_DOCKER = False
+        logging.warning("Docker backend not available")
+
+if USE_KUBERNETES:
+    try:
+        from jupyter import JupyterGatewayKubernetes
+    except ImportError:
+        USE_KUBERNETES = False
+        logging.warning("Kubernetes backend not available")
 
 logging.basicConfig(level=logging.INFO)
 
-if os.environ.get("USE_KUBERNETES", "0").lower() == "1":
+# Select the backend based on environment variables
+if USE_KUBERNETES:
     JupyterKernelWrapper = JupyterGatewayKubernetes
     logging.info("Using Kubernetes as the backend for JupyterGateway")
-else:
+elif USE_DOCKER:
     JupyterKernelWrapper = JupyterGatewayDocker
     logging.info("Using Docker as the backend for JupyterGateway")
+else:
+    JupyterKernelWrapper = JupyterGatewayLocal
+    logging.info("Using Local (no-Docker) as the backend for JupyterGateway")
 
 # Global data structure to map convid to (JupyterKernelWrapper, JupyterKernel)
 JupyterKernelType = namedtuple("JupyterKernelType", [

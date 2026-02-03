@@ -2,10 +2,12 @@ import os
 import re
 import time
 import json
-import docker
 import asyncio
 import tornado
 import logging
+import subprocess
+import signal
+import socket
 
 from tornado.escape import json_encode, json_decode, url_escape
 from tornado.websocket import websocket_connect, WebSocketHandler
@@ -14,12 +16,32 @@ from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from uuid import uuid4
 
 logging.basicConfig(level=logging.INFO)
-if os.environ.get("USE_KUBERNETES", "0").lower() == "1":
-    from kubernetes import client, config
-    config.load_incluster_config()
 
-with open('config.json', 'r') as fp:
-    docker_config = json.load(fp)
+# Conditionally import docker - not required for local mode
+USE_DOCKER = os.environ.get("USE_DOCKER", "0").lower() == "1"
+USE_KUBERNETES = os.environ.get("USE_KUBERNETES", "0").lower() == "1"
+
+if USE_DOCKER:
+    try:
+        import docker
+    except ImportError:
+        logging.warning("Docker package not installed. Docker mode will not be available.")
+        USE_DOCKER = False
+
+if USE_KUBERNETES:
+    try:
+        from kubernetes import client, config
+        config.load_incluster_config()
+    except ImportError:
+        logging.warning("Kubernetes package not installed. Kubernetes mode will not be available.")
+        USE_KUBERNETES = False
+
+# Load config if exists
+docker_config = {'volumes_path': './data'}
+config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+if os.path.exists(config_path):
+    with open(config_path, 'r') as fp:
+        docker_config = json.load(fp)
 
 def strip_ansi(o: str) -> str:
     """
@@ -403,6 +425,87 @@ class JupyterGatewayKubernetes:
         logging.info(f"Service {self.pod_name} deleted.")
         self.api_instance.delete_namespaced_pod(self.pod_name, self.NAMESPACE)
         logging.info(f"Pod {self.pod_name} has been deleted.")
+
+
+class JupyterGatewayLocal:
+    """
+    Local Jupyter Kernel Gateway - runs without Docker
+    Requires jupyter_kernel_gateway to be installed locally
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+        self.process = None
+        self.port = None
+
+    def _get_free_port(self):
+        """Get a free port from the OS."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
+
+    def _wait_for_gateway(self, timeout=60):
+        """Wait for the Jupyter Kernel Gateway to be ready."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    result = s.connect_ex(('localhost', self.port))
+                    if result == 0:
+                        logging.info(f"Jupyter Kernel Gateway is ready on port {self.port}")
+                        return True
+            except:
+                pass
+            time.sleep(0.5)
+        logging.error(f"Timeout waiting for Jupyter Kernel Gateway on port {self.port}")
+        return False
+
+    def __enter__(self):
+        self.port = self._get_free_port()
+
+        # Start Jupyter Kernel Gateway as a subprocess
+        cmd = [
+            "jupyter", "kernelgateway",
+            "--KernelGatewayApp.ip=0.0.0.0",
+            f"--KernelGatewayApp.port={self.port}",
+            "--KernelGatewayApp.api=kernel_gateway.jupyter_websocket",
+            "--JupyterWebsocketPersonality.list_kernels=True",
+        ]
+
+        logging.info(f"Starting Jupyter Kernel Gateway: {' '.join(cmd)}")
+
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=os.setsid if os.name != 'nt' else None
+        )
+
+        if not self._wait_for_gateway():
+            self.__exit__(None, None, None)
+            raise RuntimeError("Failed to start Jupyter Kernel Gateway")
+
+        return f"localhost:{self.port}"
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.process:
+            try:
+                if os.name != 'nt':
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                else:
+                    self.process.terminate()
+                self.process.wait(timeout=5)
+            except Exception as e:
+                logging.warning(f"Error stopping Jupyter Kernel Gateway: {e}")
+                if os.name != 'nt':
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                else:
+                    self.process.kill()
+            finally:
+                self.process = None
+            logging.info(f"Jupyter Kernel Gateway stopped for {self.name}")
 
 
 if __name__ == "__main__":

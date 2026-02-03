@@ -8,6 +8,9 @@ from llm_api import get_llm_response
 from prompt_format import PROMPT_FORMAT_SINGLE
 from code_exec import get_exec_client, extract_code, exec_code
 
+# Check if local execution mode is enabled
+USE_LOCAL_KERNEL = os.environ.get("USE_LOCAL_KERNEL", "0").lower() == "1"
+
 
 def gen_file_content(input_file):
     excel_file = pd.ExcelFile(input_file)
@@ -32,7 +35,7 @@ def gen_solution(opt):
     dataset_path = os.path.abspath(f'../data/{opt.dataset}')
     with open(f'{dataset_path}/dataset.json', 'r') as fp:
         dataset = json.load(fp)
-    
+
     # check if output file folder exists
     output_file_path = f'{dataset_path}/outputs'
     if not os.path.exists(output_file_path):
@@ -47,14 +50,19 @@ def gen_solution(opt):
 
     # create code execution client
     client = get_exec_client(opt.code_exec_url, opt.conv_id)
-        
+
     for data in tqdm(dataset):
         try:
             file_name = f"1_{data['spreadsheet_path'].lstrip('spreadsheet/')}_input.xlsx"
 
-            input_path = f"/mnt/data/{data['spreadsheet_path']}/{file_name}"
-            output_path = f"/mnt/data/outputs/single_{opt.model}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
-            
+            # Use local path or Docker path based on mode
+            if USE_LOCAL_KERNEL:
+                input_path = f"{dataset_path}/{data['spreadsheet_path']}/{file_name}"
+                output_path = f"{output_file_path}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
+            else:
+                input_path = f"/mnt/data/{data['spreadsheet_path']}/{file_name}"
+                output_path = f"/mnt/data/outputs/single_{opt.model}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
+
             find_input_path = f"{dataset_path}/{data['spreadsheet_path']}/{file_name}"
             file_content = gen_file_content(find_input_path)
             prompt = ""
