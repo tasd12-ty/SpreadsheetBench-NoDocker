@@ -36,6 +36,9 @@ def gen_solution(opt):
     with open(f'{dataset_path}/dataset.json', 'r') as fp:
         dataset = json.load(fp)
 
+    # 将模型名中的 / 替换为 _ 以创建安全的文件路径
+    safe_model_name = opt.model.replace('/', '_')
+
     # check if output file folder exists
     output_file_path = f'{dataset_path}/outputs'
     if not os.path.exists(output_file_path):
@@ -43,7 +46,7 @@ def gen_solution(opt):
         os.chmod(output_file_path, 0o777)
 
     # check if output file folder of the model exists
-    output_file_path = f'{output_file_path}/single_{opt.model}'
+    output_file_path = f'{output_file_path}/single_{safe_model_name}'
     if not os.path.exists(output_file_path):
         os.makedirs(output_file_path)
         os.chmod(output_file_path, 0o777)
@@ -61,7 +64,7 @@ def gen_solution(opt):
                 output_path = f"{output_file_path}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
             else:
                 input_path = f"/mnt/data/{data['spreadsheet_path']}/{file_name}"
-                output_path = f"/mnt/data/outputs/single_{opt.model}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
+                output_path = f"/mnt/data/outputs/single_{safe_model_name}/{file_name.rstrip(f'_input.xlsx')}_output.xlsx"
 
             find_input_path = f"{dataset_path}/{data['spreadsheet_path']}/{file_name}"
             file_content = gen_file_content(find_input_path)
@@ -96,16 +99,18 @@ def gen_solution(opt):
                 'conversation': "",
                 'solution': ""
             }
-            with open(f'log/single_{opt.model}.jsonl', 'a+') as f:
+            with open(f'log/single_{safe_model_name}.jsonl', 'a+') as f:
                 f.write(json.dumps(data, ensure_ascii=False) + '\n')
-        with open(f'outputs/conv_single_{opt.model}.jsonl', 'a+') as fp:
+        with open(f'outputs/conv_single_{safe_model_name}.jsonl', 'a+') as fp:
             fp.write(json.dumps(conv_result, ensure_ascii=False) + '\n')
 
 
 def run_solution(opt):
     client = get_exec_client(opt.code_exec_url, opt.conv_id)
     dataset_path = os.path.abspath(f'../data/{opt.dataset}')
-    with open(f'{dataset_path}/outputs/conv_single_{opt.model}.jsonl', 'r') as fp:
+    # 将模型名中的 / 替换为 _ 以创建安全的文件路径
+    safe_model_name = opt.model.replace('/', '_')
+    with open(f'{dataset_path}/outputs/conv_single_{safe_model_name}.jsonl', 'r') as fp:
         conv_records = [json.loads(line) for line in fp.readlines()]
     for conv in tqdm(conv_records):
         try:
