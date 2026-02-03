@@ -1,3 +1,15 @@
+"""
+代码执行 API 服务
+Code Execution API Server
+
+本模块提供 HTTP API 接口用于远程代码执行
+支持三种后端: 本地模式 / Docker / Kubernetes
+
+环境变量配置:
+- USE_DOCKER=1: 使用 Docker 后端
+- USE_KUBERNETES=1: 使用 Kubernetes 后端
+- 默认: 使用本地后端（无需 Docker）
+"""
 import os
 import time
 import json
@@ -10,7 +22,7 @@ import tornado.httpserver
 from collections import namedtuple
 from jupyter import JupyterKernel, JupyterGatewayLocal
 
-# Conditionally import Docker and Kubernetes backends
+# 条件导入 Docker 和 Kubernetes 后端
 USE_DOCKER = os.environ.get("USE_DOCKER", "0").lower() == "1"
 USE_KUBERNETES = os.environ.get("USE_KUBERNETES", "0").lower() == "1"
 
@@ -30,7 +42,8 @@ if USE_KUBERNETES:
 
 logging.basicConfig(level=logging.INFO)
 
-# Select the backend based on environment variables
+# 根据环境变量选择后端
+# 优先级: Kubernetes > Docker > 本地模式
 if USE_KUBERNETES:
     JupyterKernelWrapper = JupyterGatewayKubernetes
     logging.info("Using Kubernetes as the backend for JupyterGateway")
@@ -38,6 +51,7 @@ elif USE_DOCKER:
     JupyterKernelWrapper = JupyterGatewayDocker
     logging.info("Using Docker as the backend for JupyterGateway")
 else:
+    # 默认使用本地模式，无需 Docker
     JupyterKernelWrapper = JupyterGatewayLocal
     logging.info("Using Local (no-Docker) as the backend for JupyterGateway")
 

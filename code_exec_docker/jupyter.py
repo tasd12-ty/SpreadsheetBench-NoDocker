@@ -1,3 +1,17 @@
+"""
+Jupyter 内核网关模块 - 支持多种后端（本地/Docker/Kubernetes）
+Jupyter Kernel Gateway module - supports multiple backends (Local/Docker/Kubernetes)
+
+本模块提供三种代码执行后端:
+1. JupyterGatewayLocal: 本地模式，无需 Docker（默认）
+2. JupyterGatewayDocker: Docker 容器模式
+3. JupyterGatewayKubernetes: Kubernetes 集群模式
+
+通过环境变量选择后端:
+- USE_DOCKER=1: 使用 Docker 后端
+- USE_KUBERNETES=1: 使用 Kubernetes 后端
+- 默认: 使用本地后端
+"""
 import os
 import re
 import time
@@ -17,7 +31,8 @@ from uuid import uuid4
 
 logging.basicConfig(level=logging.INFO)
 
-# Conditionally import docker - not required for local mode
+# 条件导入 docker - 本地模式不需要
+# 通过环境变量控制是否使用 Docker 或 Kubernetes
 USE_DOCKER = os.environ.get("USE_DOCKER", "0").lower() == "1"
 USE_KUBERNETES = os.environ.get("USE_KUBERNETES", "0").lower() == "1"
 
@@ -36,7 +51,7 @@ if USE_KUBERNETES:
         logging.warning("Kubernetes package not installed. Kubernetes mode will not be available.")
         USE_KUBERNETES = False
 
-# Load config if exists
+# 加载配置文件（如果存在）
 docker_config = {'volumes_path': './data'}
 config_path = os.path.join(os.path.dirname(__file__), 'config.json')
 if os.path.exists(config_path):
@@ -429,24 +444,46 @@ class JupyterGatewayKubernetes:
 
 class JupyterGatewayLocal:
     """
+    本地 Jupyter Kernel Gateway - 无需 Docker 运行
+    需要本地安装 jupyter_kernel_gateway
+
     Local Jupyter Kernel Gateway - runs without Docker
     Requires jupyter_kernel_gateway to be installed locally
+
+    使用方法:
+        with JupyterGatewayLocal("my_session") as url_suffix:
+            kernel = JupyterKernel(url_suffix, "my_conv")
+            result = await kernel.execute("print('hello')")
     """
 
     def __init__(self, name: str):
+        """
+        初始化本地网关
+
+        参数:
+            name: 网关实例名称，用于日志标识
+        """
         self.name = name
-        self.process = None
-        self.port = None
+        self.process = None  # 子进程句柄
+        self.port = None     # 分配的端口号
 
     def _get_free_port(self):
-        """Get a free port from the OS."""
+        """从操作系统获取一个可用端口"""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("", 0))
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             return s.getsockname()[1]
 
     def _wait_for_gateway(self, timeout=60):
-        """Wait for the Jupyter Kernel Gateway to be ready."""
+        """
+        等待 Jupyter Kernel Gateway 就绪
+
+        参数:
+            timeout: 超时时间（秒）
+
+        返回:
+            bool: 是否成功就绪
+        """
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
@@ -463,9 +500,15 @@ class JupyterGatewayLocal:
         return False
 
     def __enter__(self):
+        """
+        启动 Jupyter Kernel Gateway 子进程
+
+        返回:
+            str: 网关地址 (localhost:port)
+        """
         self.port = self._get_free_port()
 
-        # Start Jupyter Kernel Gateway as a subprocess
+        # 构建启动命令
         cmd = [
             "jupyter", "kernelgateway",
             "--KernelGatewayApp.ip=0.0.0.0",
@@ -476,6 +519,7 @@ class JupyterGatewayLocal:
 
         logging.info(f"Starting Jupyter Kernel Gateway: {' '.join(cmd)}")
 
+        # 启动子进程，创建新的进程组以便于清理
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -483,6 +527,7 @@ class JupyterGatewayLocal:
             preexec_fn=os.setsid if os.name != 'nt' else None
         )
 
+        # 等待网关就绪
         if not self._wait_for_gateway():
             self.__exit__(None, None, None)
             raise RuntimeError("Failed to start Jupyter Kernel Gateway")
@@ -490,8 +535,13 @@ class JupyterGatewayLocal:
         return f"localhost:{self.port}"
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        停止 Jupyter Kernel Gateway 子进程
+        优雅关闭，超时后强制终止
+        """
         if self.process:
             try:
+                # Linux/Mac 使用进程组信号，Windows 使用 terminate
                 if os.name != 'nt':
                     os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 else:
@@ -499,6 +549,7 @@ class JupyterGatewayLocal:
                 self.process.wait(timeout=5)
             except Exception as e:
                 logging.warning(f"Error stopping Jupyter Kernel Gateway: {e}")
+                # 强制终止
                 if os.name != 'nt':
                     os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
                 else:
