@@ -25,22 +25,22 @@ def calculate_statistics(eval_results: List[Dict[str, Any]]) -> Dict[str, Any]:
             'total_tasks': 0,
             'total_test_cases': 0,
             'passed_test_cases': 0,
-            'soft_restriction_avg': 0.0,
-            'hard_restriction_avg': 0.0,
+            'soft_restriction_sum': 0.0,
+            'hard_restriction_sum': 0,
         }
 
     total_tasks = len(eval_results)
     total_test_cases = sum(len(r['test_case_results']) for r in eval_results)
     passed_test_cases = sum(sum(r['test_case_results']) for r in eval_results)
-    soft_restriction_avg = sum(r['soft_restriction'] for r in eval_results) / total_tasks
-    hard_restriction_avg = sum(r['hard_restriction'] for r in eval_results) / total_tasks
+    soft_restriction_sum = sum(r['soft_restriction'] for r in eval_results)
+    hard_restriction_sum = sum(r['hard_restriction'] for r in eval_results)
 
     return {
         'total_tasks': total_tasks,
         'total_test_cases': total_test_cases,
         'passed_test_cases': passed_test_cases,
-        'soft_restriction_avg': soft_restriction_avg,
-        'hard_restriction_avg': hard_restriction_avg,
+        'soft_restriction_sum': soft_restriction_sum,
+        'hard_restriction_sum': hard_restriction_sum,
     }
 
 
@@ -68,9 +68,11 @@ def calculate_statistics_by_type(eval_results: List[Dict[str, Any]]) -> Dict[str
     return stats_by_type
 
 
-def format_percentage(value: float) -> str:
-    """格式化百分比"""
-    return f"{value * 100:.2f}%"
+def format_number(value: float) -> str:
+    """格式化数值"""
+    if isinstance(value, int):
+        return str(value)
+    return f"{value:.2f}"
 
 
 def print_table(stats_overall: Dict[str, Any], stats_by_type: Dict[str, Dict[str, Any]], eval_results: List[Dict[str, Any]]):
@@ -95,15 +97,15 @@ def print_table(stats_overall: Dict[str, Any], stats_by_type: Dict[str, Dict[str
     print(f"  总任务数:          {stats_overall['total_tasks']}")
     print(f"  总测试用例数:      {stats_overall['total_test_cases']}")
     print(f"  通过测试用例数:    {stats_overall['passed_test_cases']}")
-    print(f"  软限制平均分:      {format_percentage(stats_overall['soft_restriction_avg'])}")
-    print(f"  硬限制平均分:      {format_percentage(stats_overall['hard_restriction_avg'])}")
+    print(f"  软限制总分:        {format_number(stats_overall['soft_restriction_sum'])}")
+    print(f"  硬限制总分:        {stats_overall['hard_restriction_sum']}")
 
     # 按类型统计表格
     print("\n【按指令类型统计】")
     print("-" * sum(col_widths))
 
     # 表头
-    headers = ["指令类型", "任务数", "测试用例数", "通过用例数", "软限制(平均)", "硬限制(平均)"]
+    headers = ["指令类型", "任务数", "测试用例数", "通过用例数", "软限制(总分)", "硬限制(总分)"]
     header_line = ""
     for i, header in enumerate(headers):
         header_line += header.ljust(col_widths[i], " ")
@@ -117,8 +119,8 @@ def print_table(stats_overall: Dict[str, Any], stats_by_type: Dict[str, Dict[str
             str(stats['total_tasks']),
             str(stats['total_test_cases']),
             str(stats['passed_test_cases']),
-            format_percentage(stats['soft_restriction_avg']),
-            format_percentage(stats['hard_restriction_avg']),
+            format_number(stats['soft_restriction_sum']),
+            str(stats['hard_restriction_sum']),
         ]
         row_line = ""
         for i, cell in enumerate(row):
@@ -132,9 +134,9 @@ def print_table(stats_overall: Dict[str, Any], stats_by_type: Dict[str, Dict[str
     for instruction_type, stats in sorted(stats_by_type.items()):
         print(f"\n  {instruction_type}:")
         print(f"    - 任务数: {stats['total_tasks']}")
-        print(f"    - 测试用例通过率: {stats['passed_test_cases']}/{stats['total_test_cases']} = {format_percentage(stats['passed_test_cases']/stats['total_test_cases'] if stats['total_test_cases'] > 0 else 0)}")
-        print(f"    - 软限制(部分通过): {format_percentage(stats['soft_restriction_avg'])}")
-        print(f"    - 硬限制(全部通过): {format_percentage(stats['hard_restriction_avg'])}")
+        print(f"    - 测试用例通过: {stats['passed_test_cases']}/{stats['total_test_cases']}")
+        print(f"    - 软限制总分: {format_number(stats['soft_restriction_sum'])}")
+        print(f"    - 硬限制总分: {stats['hard_restriction_sum']}")
 
         # 计算分布
         results = [r for r in eval_results if r.get('instruction_type') == instruction_type]
@@ -142,9 +144,9 @@ def print_table(stats_overall: Dict[str, Any], stats_by_type: Dict[str, Dict[str
         partial_scores = sum(1 for r in results if 0 < r['soft_restriction'] < 1)
         zero_scores = sum(1 for r in results if r['soft_restriction'] == 0)
 
-        print(f"    - 全部通过: {perfect_scores} ({format_percentage(perfect_scores/len(results) if results else 0)})")
-        print(f"    - 部分通过: {partial_scores} ({format_percentage(partial_scores/len(results) if results else 0)})")
-        print(f"    - 全部失败: {zero_scores} ({format_percentage(zero_scores/len(results) if results else 0)})")
+        print(f"    - 全部通过: {perfect_scores}")
+        print(f"    - 部分通过: {partial_scores}")
+        print(f"    - 全部失败: {zero_scores}")
 
     print("\n" + "=" * sum(col_widths))
 
